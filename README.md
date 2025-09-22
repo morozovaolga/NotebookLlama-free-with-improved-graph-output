@@ -1,22 +1,21 @@
+
 # NotebookLlaMa🦙
 
-## A fluffy and open-source alternative to NotebookLM!
+## Форк популярного проекта [Llama](https://github.com/run-llama/notebookllama)
 
-https://github.com/user-attachments/assets/7e9cca45-8a4c-4dfa-98d2-2cef147422f2
+Этот репозиторий — мой кастомизированный форк проекта Llama. Я решила сделать его полностью бесплатным, убрать все платные зависимости и улучшить вывод майндмэпов, диаграмм и графиков.
 
-<p align="center">
-  A fully open-source alternative to NotebookLM, backed by <a href="https://cloud.llamaindex.ai?utm_source=demo&utm_medium=notebookLM"><strong>LlamaCloud</strong></a>.
-</p>
+**Основные отличия:**
+- Бесплатное использование (только бесплатные API и модели)
+- Улучшенный вывод майндмэпов, графиков и диаграмм
+- Открытый код для самостоятельной доработки
 
-<p align="center">
-    <a href="https://github.com/run-llama/notebookllama/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/run-llama/notebookllama?color=blue"></a>
-    <a href="https://github.com/run-llama/notebookllama/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/run-llama/notebookllama?color=yellow"></a>
-    <a href="https://github.com/run-llama/notebookllama/issues"><img alt="Issues" src="https://img.shields.io/github/issues/run-llama/notebookllama?color=orange"></a>
-    <br>
-    <a href="https://mseep.ai/app/run-llama-notebookllama"><img alt="MseeP.ai Security Assessment Badge" src="https://mseep.net/pr/run-llama-notebookllama-badge.png"></a>
-</p>
+Исходный проект: [github.com/run-llama/notebookllama](https://github.com/run-llama/notebookllama)
 
-### Prerequisites
+---
+
+
+### Требования
 
 This project uses `uv` to manage dependencies. Before you begin, make sure you have `uv` installed.
 
@@ -36,22 +35,26 @@ For more install options, see `uv`'s [official documentation](https://docs.astra
 
 ---
 
-### Get it up and running!
 
-**1. Clone the Repository**
+### Быстрый старт
+
+
+**1. Клонируйте репозиторий**
 
 ```bash
 git clone https://github.com/run-llama/notebookllama
 cd notebookllama/
 ```
 
-**2. Install Dependencies**
+
+**2. Установите зависимости**
 
 ```bash
 uv sync
 ```
 
-**3. Configure API Keys**
+
+**3. Укажите API-ключи**
 
 First, create your `.env` file by renaming the example file:
 
@@ -59,18 +62,20 @@ First, create your `.env` file by renaming the example file:
 mv .env.example .env
 ```
 
-Next, open the `.env` file and add your API keys:
-
-- `OPENAI_API_KEY`: find it [on OpenAI Platform](https://platform.openai.com/api-keys)
-- `ELEVENLABS_API_KEY`: find it [on ElevenLabs Settings](https://elevenlabs.io/app/settings/api-keys)
-- `LLAMACLOUD_API_KEY`: find it [on LlamaCloud Dashboard](https://cloud.llamaindex.ai?utm_source=demo&utm_medium=notebookLM)
-
-> **🌍 Regional Support**: LlamaCloud operates in multiple regions. If you're using a European region, configure it in your `.env` file:
 >
 > - For **North America**: This is the default region - no configuration necesary.
 > - For **Europe (EU)**: Uncomment and set `LLAMACLOUD_REGION="eu"`
 
-**4. Activate the Virtual Environment**
+Далее откройте файл `.env` и добавьте ваши ключи:
+
+- `HUGGINGFACE_API_KEY`: получите на [HuggingFace](https://huggingface.co/settings/tokens)
+- `LLAMACLOUD_API_KEY`: получите на [LlamaCloud Dashboard](https://cloud.llamaindex.ai?utm_source=demo&utm_medium=notebookLM)
+
+> **🌍 Региональная поддержка**: LlamaCloud работает в нескольких регионах. Для Европы укажите:
+> - Для **Европы (EU)**: `LLAMACLOUD_REGION="eu"`
+
+
+**4. Активируйте виртуальное окружение**
 
 (on mac/unix)
 
@@ -84,7 +89,8 @@ source .venv/bin/activate
 .\.venv\Scripts\activate
 ```
 
-**5. Create LlamaCloud Agent & Pipeline**
+
+**5. Создайте агента и пайплайн LlamaCloud**
 
 You will now execute two scripts to configure your backend agents and pipelines.
 
@@ -96,11 +102,12 @@ uv run tools/create_llama_extract_agent.py
 
 Next, run the interactive setup wizard to configure your index pipeline.
 
-> **⚡ Quick Start (Default OpenAI):**
-> For the fastest setup, select **"With Default Settings"** when prompted. This will automatically create a pipeline using OpenAI's `text-embedding-3-small` embedding model.
 
-> **🧠 Advanced (Custom Embedding Models):**
-> To use a different embedding model, select **"With Custom Settings"** and follow the on-screen instructions.
+> **⚡ Быстрый старт (по умолчанию HuggingFace):**
+> Для быстрого запуска выберите **"With Default Settings"** — будет создан пайплайн с бесплатной моделью HuggingFace (`sentence-transformers/paraphrase-multilingual-mpnet-base-v2`).
+
+> **🧠 Расширенный режим (свои модели):**
+> Для выбора другой бесплатной модели HuggingFace (например, `all-MiniLM-L6-v2`, `bge-small-en-v1.5`), выберите **"With Custom Settings"** и следуйте инструкциям.
 
 Run the wizard with the following command:
 
@@ -108,7 +115,8 @@ Run the wizard with the following command:
 uv run tools/create_llama_cloud_index.py
 ```
 
-**6. Launch Backend Services**
+
+**6. Запустите backend-сервисы**
 
 This command will start the required Postgres and Jaeger containers.
 
@@ -116,7 +124,8 @@ This command will start the required Postgres and Jaeger containers.
 docker compose up -d
 ```
 
-**7. Run the Application**
+
+**7. Запустите приложение**
 
 First, run the **MCP** server:
 
@@ -138,10 +147,12 @@ And start exploring the app at `http://localhost:8501/`.
 
 ---
 
-### Contributing
+
+### Вклад и доработка
 
 Contribute to this project following the [guidelines](./CONTRIBUTING.md).
 
-### License
+
+### Лицензия
 
 This project is provided under an [MIT License](./LICENSE).
