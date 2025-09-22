@@ -1,0 +1,27 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+lib/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# caches
+.*_cache/
+
+# env files
+.env
+
+# image files
+static/
+
+# audio files
+*.mp3
+
+# auto-generated images
+static/
+data/extracted_tables/
