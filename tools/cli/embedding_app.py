@@ -25,14 +25,14 @@ class EmbeddingSetupApp(App):
         multilingual_model = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
         print(f"Выбрана модель для русского и других языков: {multilingual_model}")
 
-        from llama_index.embeddings.huggingface_api import HuggingFaceInferenceAPIEmbedding
         from llama_cloud import PipelineCreateEmbeddingConfig_HuggingfaceApiEmbedding
+        from llama_index.embeddings import HuggingFaceEmbedding
 
         self.config.provider = "HuggingFace"
         self.config.model = multilingual_model
 
         hf_token = os.getenv("HUGGINGFACE_API_KEY", "")
-        embed_model = HuggingFaceInferenceAPIEmbedding(model_name=self.config.model, token=hf_token)
+        embed_model = HuggingFaceEmbedding(model_name=self.config.model, token=hf_token)
 
         # Конфигурация для пайплайна
         embedding_config = PipelineCreateEmbeddingConfig_HuggingfaceApiEmbedding(

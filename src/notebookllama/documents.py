@@ -80,7 +80,11 @@ class DocumentManager:
         self._table.create(self.connection, checkfirst=True)
 
     def put_documents(self, documents: List[ManagedDocument]) -> None:
+        import logging
+        logging.basicConfig(level=logging.INFO)
+        logger = logging.getLogger("DocumentManager")
         for document in documents:
+            logger.info(f"Запись документа в БД: {document.document_name}")
             stmt = insert(self.table).values(
                 document_name=document.document_name,
                 content=document.content,
@@ -91,6 +95,7 @@ class DocumentManager:
             )
             self.connection.execute(stmt)
         self.connection.commit()
+        logger.info("Коммит транзакции завершён.")
 
     def get_documents(self, names: Optional[List[str]] = None) -> List[ManagedDocument]:
         if self.table is None:

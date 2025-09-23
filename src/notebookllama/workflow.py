@@ -42,15 +42,14 @@ class NotebookLMWorkflow(Workflow):
         mcp_client: Annotated[BasicMCPClient, Resource(get_mcp_client)],
         ctx: Context,
     ) -> Union[MindMapCreationEvent, NotebookOutputEvent]:
-        ctx.write_event_to_stream(
-            ev=ev,
-        )
+        ctx.write_event_to_stream(ev=ev)
         result = await mcp_client.call_tool(
             tool_name="process_file_tool", arguments={"filename": ev.file}
         )
         split_result = result.content[0].text.split("\n%separator%\n")
         json_data = split_result[0]
-        md_text = split_result[1]
+        md_text = split_result[1] if len(split_result) > 1 else ""
+        # Проверка на ошибку или невалидный JSON
         if json_data == "Sorry, your file could not be processed.":
             return NotebookOutputEvent(
                 mind_map="Unprocessable file, sorry😭",
@@ -60,7 +59,20 @@ class NotebookLMWorkflow(Workflow):
                 questions=[],
                 answers=[],
             )
-        json_rep = json.loads(json_data)
+        try:
+            json_rep = json.loads(json_data)
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            error_text = f"Ошибка при обработке файла: {json_data}\nТип ошибки: {type(e).__name__}\n{str(e)}\nТрейсбек:\n{tb}"
+            return NotebookOutputEvent(
+                mind_map=error_text,
+                md_content="",
+                summary="",
+                highlights=[],
+                questions=[],
+                answers=[],
+            )
         return MindMapCreationEvent(
             md_content=md_text,
             **json_rep,
@@ -93,8 +105,13 @@ class NotebookLMWorkflow(Workflow):
                     }
                 ),
             )
+        error_msg = getattr(result, 'error', None)
+        if error_msg:
+            mind_map_text = f"Не удалось построить майндмэп: {error_msg}"
+        else:
+            mind_map_text = "Не удалось построить майндмэп. Проверьте настройки модели и ключа API."
         return NotebookOutputEvent(
-            mind_map="Sorry, mind map creation failed😭",
+            mind_map=mind_map_text,
             **ev.model_dump(
                 include={
                     "summary",

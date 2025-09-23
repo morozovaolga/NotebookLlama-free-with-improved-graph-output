@@ -33,7 +33,7 @@ async def get_mind_map_tool(
 ) -> Union[str, Literal["Sorry, mind map creation failed."]]:
     mind_map_fl = await get_mind_map(summary=summary, highlights=highlights)
     if mind_map_fl is None:
-        return "Sorry, mind map creation failed."
+        return "Не удалось построить майндмэп. Проверьте настройки модели и ключа API."
     return mind_map_fl
 
 

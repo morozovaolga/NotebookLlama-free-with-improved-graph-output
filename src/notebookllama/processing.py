@@ -100,49 +100,57 @@ async def parse_file(
     images: Optional[List[str]] = None
     text: Optional[str] = None
     tables: Optional[List[pd.DataFrame]] = None
-    document = await PARSER.aparse(file_path=file_path)
-    md_content = await document.aget_markdown_documents()
-    if len(md_content) != 0:
-        text = "\n\n---\n\n".join([doc.text for doc in md_content])
-    if with_images:
-        rename_and_remove_past_images()
-        imgs = await document.asave_all_images("static/")
-        images = rename_and_remove_current_images(imgs)
-    if with_tables:
-        if text is not None:
-            analyzer = MarkdownTextAnalyzer(text)
-            md_tables = analyzer.identify_tables()["Table"]
-            tables = []
-            for md_table in md_tables:
-                table = md_table_to_pd_dataframe(md_table=md_table)
-                if table is not None:
-                    tables.append(table)
-                    os.makedirs("data/extracted_tables/", exist_ok=True)
-                    table.to_csv(
-                        f"data/extracted_tables/table_{datetime.now().strftime('%Y_%d_%m_%H_%M_%S_%f')[:-3]}.csv",
-                        index=False,
-                    )
-    return text, images, tables
+    try:
+        document = await PARSER.aparse(file_path=file_path)
+        md_content = await document.aget_markdown_documents()
+        if len(md_content) != 0:
+            text = "\n\n---\n\n".join([doc.text for doc in md_content])
+        if with_images:
+            rename_and_remove_past_images()
+            imgs = await document.asave_all_images("static/")
+            images = rename_and_remove_current_images(imgs)
+        if with_tables:
+            if text is not None:
+                analyzer = MarkdownTextAnalyzer(text)
+                md_tables = analyzer.identify_tables()["Table"]
+                tables = []
+                for md_table in md_tables:
+                    table = md_table_to_pd_dataframe(md_table=md_table)
+                    if table is not None:
+                        tables.append(table)
+                        os.makedirs("data/extracted_tables/", exist_ok=True)
+                        table.to_csv(
+                            f"data/extracted_tables/table_{datetime.now().strftime('%Y_%d_%m_%H_%M_%S_%f')[:-3]}.csv",
+                            index=False,
+                        )
+        return text, images, tables
+    except Exception as e:
+        warnings.warn(f"Ошибка при парсинге файла: {e}")
+        return None, None, None
 
 
 async def process_file(
     filename: str,
 ) -> Union[Tuple[str, None], Tuple[None, None], Tuple[str, str]]:
-    with open(filename, "rb") as f:
-        file = await CLIENT.files.upload_file(upload_file=f)
-    files = [{"file_id": file.id}]
-    await CLIENT.pipelines.add_files_to_pipeline_api(
-        pipeline_id=PIPELINE_ID, request=files
-    )
-    text, _, _ = await parse_file(file_path=filename)
-    if text is None:
-        return None, None
-    extraction_output = await EXTRACT_AGENT.aextract(
-        files=SourceText(text_content=text, filename=file.name)
-    )
-    if extraction_output:
-        return json.dumps(extraction_output.data, indent=4), text
-    return None, None
+    try:
+        with open(filename, "rb") as f:
+            file = await CLIENT.files.upload_file(upload_file=f)
+        files = [{"file_id": file.id}]
+        await CLIENT.pipelines.add_files_to_pipeline_api(
+            pipeline_id=PIPELINE_ID, request=files
+        )
+        text, _, _ = await parse_file(file_path=filename)
+        if text is None:
+            return None, f"Ошибка: не удалось распарсить файл {filename}"
+        extraction_output = await EXTRACT_AGENT.aextract(
+            files=SourceText(text_content=text, filename=file.name)
+        )
+        if extraction_output:
+            return json.dumps(extraction_output.data, indent=4), text
+        return None, f"Ошибка: не удалось извлечь данные из файла {filename}"
+    except Exception as e:
+        warnings.warn(f"Ошибка при обработке файла: {e}")
+        return None, f"Ошибка при обработке файла: {e}"
 
 
 async def get_plots_and_tables(

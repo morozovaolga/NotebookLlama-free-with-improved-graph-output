@@ -133,11 +133,20 @@ First, run the **MCP** server:
 uv run src/notebookllama/server.py
 ```
 
+
 Then, in a **new terminal window**, launch the Streamlit app:
 
 ```bash
 streamlit run src/notebookllama/Home.py
 ```
+
+**Остановка Streamlit (Windows PowerShell):**
+Если нужно завершить работу Streamlit, используйте команду:
+
+```powershell
+Stop-Process -Name streamlit -Force
+```
+или просто закройте окно терминала, либо нажмите `Ctrl+C`.
 
 > [!IMPORTANT]
 >
