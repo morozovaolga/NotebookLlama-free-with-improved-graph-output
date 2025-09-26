@@ -4,7 +4,7 @@ import streamlit.components.v1 as components
 from dotenv import load_dotenv
 from typing import List, Optional
 
-from documents import DocumentManager, ManagedDocument
+from notebookllama.documents import DocumentManager, ManagedDocument
 
 # Load environment variables
 load_dotenv()

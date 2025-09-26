@@ -6,7 +6,7 @@ import tempfile as tmp
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import asyncio
-from processing import get_plots_and_tables
+from notebookllama.processing import get_plots_and_tables
 import streamlit as st
 from PIL import Image
 
@@ -68,7 +68,7 @@ if uploaded_file is not None:
             # Display results summary
             st.success("✅ Processing complete!")
             st.info(
-                f"Found {len(image_paths)} images and {len(dataframes)} tables.\nImages can be seen in the `static/` folder, tables in the `data/extracted_tables` folder."
+                f"Found {len(image_paths or [])} images and {len(dataframes or [])} tables.\nImages can be seen in the `static/` folder, tables in the `data/extracted_tables` folder."
             )
 
             # Create tabs for better organization

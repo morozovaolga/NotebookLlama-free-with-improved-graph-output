@@ -2,9 +2,8 @@ from dotenv import load_dotenv
 import json
 import os
 
+
 from pydantic import BaseModel, Field, model_validator
-from llama_index.core.llms import ChatMessage
-from llama_index.llms.openai import OpenAIResponses
 from typing import List, Tuple, Optional
 from typing_extensions import Self
 
@@ -29,22 +28,32 @@ class ClaimVerification(BaseModel):
         return self
 
 
-if os.getenv("OPENAI_API_KEY", None):
-    LLM = OpenAIResponses(model="gpt-4.1", api_key=os.getenv("OPENAI_API_KEY"))
-    LLM_VERIFIER = LLM.as_structured_llm(ClaimVerification)
 
+
+
+
+
+from utils import ollama_chat
 
 def verify_claim(
     claim: str,
     sources: str,
 ) -> Tuple[bool, Optional[List[str]]]:
-    response = LLM_VERIFIER.chat(
-        [
-            ChatMessage(
-                role="user",
-                content=f"I have this claim: {claim} that is allegedgly supported by these sources:\n\n'''\n{sources}\n'''\n\nCan you please tell me whether or not this claim is thrutful and, if it is, identify one to three passages in the sources specifically supporting the claim?",
-            )
-        ]
+    prompt = (
+        f"Проверь утверждение: '{claim}'\n"
+        f"Вот источники:\n{sources}\n"
+        "Ответь в формате JSON: {\n 'claim_is_true': bool, 'supporting_citations': [строки] }. "
+        "Если утверждение не подтверждается, supporting_citations должен быть пустым."
     )
-    response_json = json.loads(response.message.content)
-    return response_json["claim_is_true"], response_json["supporting_citations"]
+    messages = [
+        {"role": "user", "content": prompt}
+    ]
+    response = ollama_chat(messages)
+    try:
+        response_json = json.loads(response)
+        claim_is_true = response_json.get("claim_is_true", False)
+        supporting_citations = response_json.get("supporting_citations", [])
+        return claim_is_true, supporting_citations
+    except Exception as e:
+        print(f"Ошибка парсинга ответа Ollama: {e}\nОтвет: {response}")
+        return False, []
