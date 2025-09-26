@@ -1,0 +1,15 @@
+llm:
+  provider: ollama
+  model: mistral
+  endpoint: http://localhost:11434
+  max_new_tokens: 1024
+  temperature: 0.1
+  top_p: 0.9
+
+tasks:
+  summary:
+    model: mistral
+  mindmap:
+    model: mistral
+  facts:
+    model: mistral

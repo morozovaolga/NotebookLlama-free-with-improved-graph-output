@@ -6,20 +6,9 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from verifying import verify_claim as sync_verify_claim
-from llama_index.tools.mcp import BasicMCPClient
-
-MCP_CLIENT = BasicMCPClient(command_or_url="http://localhost:8000/mcp")
-
-
-async def chat(inpt: str):
-    result = await MCP_CLIENT.call_tool(
-        tool_name="query_index_tool", arguments={"question": inpt}
-    )
-    return result.content[0].text
-
-
 def sync_chat(inpt: str):
-    return asyncio.run(chat(inpt=inpt))
+    # TODO: реализовать локальный чат через Ollama или HuggingFace
+    return "Функция чата временно недоступна."
 
 
 # Chat Interface

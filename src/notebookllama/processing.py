@@ -1,37 +1,15 @@
+
 import os
-import sys
-from dotenv import load_dotenv
 import pandas as pd
 import json
 import warnings
 from datetime import datetime
-
-from mrkdwn_analysis import MarkdownAnalyzer
-from mrkdwn_analysis.markdown_analyzer import InlineParser, MarkdownParser
-from llama_cloud_services.extract import SourceText
 from typing_extensions import override
 from typing import List, Tuple, Union, Optional, Dict
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-from notebookllama.utils import (
-    create_llamacloud_client,
-    create_llama_extract_client,
-    create_llama_parse_client,
-)
-
-load_dotenv()
-
-if (
-    os.getenv("LLAMACLOUD_API_KEY", None)
-    and os.getenv("EXTRACT_AGENT_ID", None)
-    and os.getenv("LLAMACLOUD_PIPELINE_ID", None)
-):
-    CLIENT = create_llamacloud_client()
-    llama_extract_client = create_llama_extract_client()
-    EXTRACT_AGENT = llama_extract_client.get_agent(id=os.getenv("EXTRACT_AGENT_ID"))
-    PARSER = create_llama_parse_client(result_type="markdown")
-    PIPELINE_ID = os.getenv("LLAMACLOUD_PIPELINE_ID")
+# Импорт локального markdown-анализатора
+from mrkdwn_analysis import MarkdownAnalyzer
+from mrkdwn_analysis.markdown_analyzer import InlineParser, MarkdownParser
 
 
 class MarkdownTextAnalyzer(MarkdownAnalyzer):
@@ -101,28 +79,86 @@ async def parse_file(
     text: Optional[str] = None
     tables: Optional[List[pd.DataFrame]] = None
     try:
-        document = await PARSER.aparse(file_path=file_path)
-        md_content = await document.aget_markdown_documents()
-        if len(md_content) != 0:
-            text = "\n\n---\n\n".join([doc.text for doc in md_content])
+        text = None
+        if file_path.lower().endswith('.pdf'):
+            # Try multiple PDF parsing backends in order of preference.
+            tried = []
+            parsed = False
+            # 1) pdf_text_utils (project helper)
+            try:
+                from pdf_text_utils import extract_clean_text_from_pdf
+                text = extract_clean_text_from_pdf(file_path)
+                parsed = True
+            except Exception as e:
+                tried.append(('pdf_text_utils', str(e)))
+            # 2) pdfplumber
+            if not parsed:
+                try:
+                    import pdfplumber
+                    text = ""
+                    with pdfplumber.open(file_path) as pdf:
+                        for page in pdf.pages:
+                            page_text = page.extract_text()
+                            if page_text:
+                                text += page_text + "\n"
+                    parsed = True
+                except Exception as e:
+                    tried.append(('pdfplumber', str(e)))
+            # 3) PyPDF2
+            if not parsed:
+                try:
+                    import PyPDF2
+                    text = ""
+                    with open(file_path, 'rb') as fh:
+                        reader = PyPDF2.PdfReader(fh)
+                        for page in reader.pages:
+                            try:
+                                page_text = page.extract_text() or ''
+                                text += page_text + "\n"
+                            except Exception:
+                                continue
+                    parsed = True
+                except Exception as e:
+                    tried.append(('PyPDF2', str(e)))
+            # 4) PyMuPDF (fitz)
+            if not parsed:
+                try:
+                    import fitz
+                    text = ""
+                    doc = fitz.open(file_path)
+                    for page in doc:
+                        try:
+                            text += page.get_text() + "\n"
+                        except Exception:
+                            continue
+                    parsed = True
+                except Exception as e:
+                    tried.append(('fitz', str(e)))
+            if not parsed:
+                # report the reasons tried
+                raise Exception(f"Could not parse PDF; attempted: {tried}")
+        else:
+            with open(file_path, "r", encoding="utf-8") as f:
+                text = f.read()
         if with_images:
             rename_and_remove_past_images()
-            imgs = await document.asave_all_images("static/")
-            images = rename_and_remove_current_images(imgs)
-        if with_tables:
-            if text is not None:
-                analyzer = MarkdownTextAnalyzer(text)
-                md_tables = analyzer.identify_tables()["Table"]
-                tables = []
-                for md_table in md_tables:
-                    table = md_table_to_pd_dataframe(md_table=md_table)
-                    if table is not None:
-                        tables.append(table)
-                        os.makedirs("data/extracted_tables/", exist_ok=True)
-                        table.to_csv(
-                            f"data/extracted_tables/table_{datetime.now().strftime('%Y_%d_%m_%H_%M_%S_%f')[:-3]}.csv",
-                            index=False,
-                        )
+            # Здесь можно добавить обработку изображений через Pillow/pytesseract
+            images = []  # Заглушка
+        if with_tables and text is not None:
+            analyzer = MarkdownTextAnalyzer(text)
+            md_tables = analyzer.identify_tables()["Table"]
+            tables = []
+            for md_table in md_tables:
+                table = md_table_to_pd_dataframe(md_table=md_table)
+                if table is not None:
+                    tables.append(table)
+                    os.makedirs("data/extracted_tables/", exist_ok=True)
+                    table.to_csv(
+                        f"data/extracted_tables/table_{datetime.now().strftime('%Y_%d_%m_%H_%M_%S_%f')[:-3]}.csv",
+                        index=False,
+                    )
+        else:
+            tables = None
         return text, images, tables
     except Exception as e:
         warnings.warn(f"Ошибка при парсинге файла: {e}")
@@ -133,21 +169,14 @@ async def process_file(
     filename: str,
 ) -> Union[Tuple[str, None], Tuple[None, None], Tuple[str, str]]:
     try:
-        with open(filename, "rb") as f:
-            file = await CLIENT.files.upload_file(upload_file=f)
-        files = [{"file_id": file.id}]
-        await CLIENT.pipelines.add_files_to_pipeline_api(
-            pipeline_id=PIPELINE_ID, request=files
-        )
+        # Локальная обработка файла: парсинг и извлечение текста
         text, _, _ = await parse_file(file_path=filename)
         if text is None:
             return None, f"Ошибка: не удалось распарсить файл {filename}"
-        extraction_output = await EXTRACT_AGENT.aextract(
-            files=SourceText(text_content=text, filename=file.name)
-        )
-        if extraction_output:
-            return json.dumps(extraction_output.data, indent=4), text
-        return None, f"Ошибка: не удалось извлечь данные из файла {filename}"
+        # Здесь можно добавить свою логику извлечения данных из текста
+        # Например, анализ через HuggingFace, регулярные выражения и т.д.
+        extraction_output = {"data": "(Здесь будут извлечённые данные)"}
+        return json.dumps(extraction_output, indent=4), text
     except Exception as e:
         warnings.warn(f"Ошибка при обработке файла: {e}")
         return None, f"Ошибка при обработке файла: {e}"

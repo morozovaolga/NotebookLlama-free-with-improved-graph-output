@@ -141,7 +141,7 @@ st.markdown("---")
 
 # SQL Query section
 st.markdown("### SQL Query")
-sql_query = st.text_input(label="")
+sql_query = st.text_input(label="SQL Query", label_visibility="collapsed")
 
 st.markdown("## Traces Table")
 dataframe = st.dataframe(data=df_data)

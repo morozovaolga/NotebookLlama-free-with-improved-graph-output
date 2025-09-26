@@ -7,12 +7,10 @@ from contextlib import asynccontextmanager
 
 from pydub import AudioSegment
 from elevenlabs import AsyncElevenLabs
-from llama_index.core.llms.structured_llm import StructuredLLM
+
 from typing_extensions import Self
 from typing import List, Literal, Optional, AsyncIterator
 from pydantic import BaseModel, ConfigDict, model_validator, Field
-from llama_index.core.llms import ChatMessage
-from llama_index.llms.openai import OpenAIResponses
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +151,7 @@ class ConversationGenerationError(PodcastGeneratorError):
 
 
 class PodcastGenerator(BaseModel):
-    llm: StructuredLLM
+    # llm: StructuredLLM  # Удалено, требуется замена на локальную LLM
     client: AsyncElevenLabs
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -225,22 +223,9 @@ class PodcastGenerator(BaseModel):
         logger.info("Generating conversation script...")
         prompt = self._build_conversation_prompt(file_transcript, config)
 
-        response = await self.llm.achat(
-            messages=[
-                ChatMessage(
-                    role="user",
-                    content=prompt,
-                )
-            ]
-        )
-
-        conversation = MultiTurnConversation.model_validate_json(
-            response.message.content
-        )
-        logger.info(
-            f"Generated conversation with {len(conversation.conversation)} turns"
-        )
-        return conversation
+        # TODO: реализовать генерацию сценария через Ollama или HuggingFace
+        logger.info("[Заглушка] Генерация сценария через локальную LLM не реализована.")
+        return MultiTurnConversation(conversation=[])
 
     @asynccontextmanager
     async def _cleanup_files(self, files: List[str]) -> AsyncIterator[None]:
@@ -362,12 +347,9 @@ load_dotenv()
 
 PODCAST_GEN: Optional[PodcastGenerator]
 
-if os.getenv("ELEVENLABS_API_KEY", None) and os.getenv("OPENAI_API_KEY", None):
-    SLLM = OpenAIResponses(
-        model="gpt-4.1", api_key=os.getenv("OPENAI_API_KEY")
-    ).as_structured_llm(MultiTurnConversation)
+if os.getenv("ELEVENLABS_API_KEY", None):
     EL_CLIENT = AsyncElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
-    PODCAST_GEN = PodcastGenerator(llm=SLLM, client=EL_CLIENT)
+    PODCAST_GEN = PodcastGenerator(client=EL_CLIENT)
 else:
-    logger.warning("Missing API keys - PODCAST_GEN not initialized")
+    logger.warning("Missing ELEVENLABS_API_KEY - PODCAST_GEN not initialized")
     PODCAST_GEN = None

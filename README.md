@@ -116,28 +116,57 @@ uv run tools/create_llama_cloud_index.py
 ```
 
 
+
 **6. Запустите backend-сервисы**
 
-This command will start the required Postgres and Jaeger containers.
+Эта команда запустит необходимые контейнеры Postgres, Jaeger, Adminer и Ollama:
 
 ```bash
 docker compose up -d
 ```
 
+**7. Укажите параметры моделей и задач**
 
-**7. Запустите приложение**
+В файле `config.yaml` (или `.env`) укажите нужные параметры для LLM и задач:
 
-First, run the **MCP** server:
+```yaml
+llm:
+	provider: ollama
+	model: mistral
+	endpoint: http://localhost:11434
+	max_new_tokens: 1024
+	temperature: 0.1
+	top_p: 0.9
 
-```bash
-uv run src/notebookllama/server.py
+tasks:
+	summary:
+		model: mistral
+	mindmap:
+		model: mistral
+	facts:
+		model: mistral
 ```
 
+**8. Запустите приложение**
 
-Then, in a **new terminal window**, launch the Streamlit app:
+Сначала запустите сервер:
 
-```bash
-streamlit run src/notebookllama/Home.py
+```powershell
+# Recommended: run as a module so package imports work (ensures `src` is on PYTHONPATH)
+$env:PYTHONPATH = "src"; python -m notebookllama.server
+```
+
+If you prefer the simpler script form (may require adjusting PYTHONPATH), you can run:
+
+```powershell
+# Make sure `src` is on PYTHONPATH first, or run with the module form above
+$env:PYTHONPATH = "src"; python src\notebookllama\server.py
+```
+
+В новом терминале запустите Streamlit:
+
+```powershell
+python -m streamlit run src/notebookllama/Home.py
 ```
 
 **Остановка Streamlit (Windows PowerShell):**
@@ -152,7 +181,15 @@ Stop-Process -Name streamlit -Force
 >
 > _You might need to install `ffmpeg` if you do not have it installed already_
 
-And start exploring the app at `http://localhost:8501/`.
+Note on PDF parsing: for more reliable PDF extraction the project prefers `pdfplumber`.
+If you experience truncated or failed PDF parsing, install it in your environment:
+
+```powershell
+pip install pdfplumber
+```
+
+
+Откройте приложение в браузере: `http://localhost:8501/`
 
 ---
 
