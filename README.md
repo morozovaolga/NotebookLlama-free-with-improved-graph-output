@@ -23,35 +23,71 @@
 
 ```powershell
 python -m venv .venv; .\.venv\Scripts\Activate.ps1
+# NotebookLlama 🦙
+
+Форк проекта notebookllama с упором на локальный запуск (без платных облачных LLM по умолчанию), улучшенный вывод майндмэпов и быстрый hybrid‑режим.
+
+Исходный проект: [github.com/run-llama/notebookllama](https://github.com/run-llama/notebookllama)
+
+---
+
+## Требования
+
+- Python 3.10+
+- Рекомендуется создать виртуальное окружение (venv) и установить зависимости (`pip install -r requirements.txt`).
+- Для более надёжного извлечения текста из PDF установите `pdfplumber` (опционально).
+
+---
+
+## Быстрый старт (PowerShell)
+
+1. Создайте и активируйте виртуальное окружение, затем установите зависимости:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-1. При желании создайте файл `.env` на основе примера:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-1. Опционально: предзагрузите агенты/индекс (если используете LlamaCloud):
+3. Опционально: предзагрузите агенты/индекс (если используете LlamaCloud) — можно запустить вспомогательные скрипты напрямую:
 
 ```powershell
-uv run tools/create_llama_extract_agent.py
-uv run tools/create_llama_cloud_index.py
+python tools\create_llama_extract_agent.py
+python tools\create_llama_cloud_index.py
 ```
 
-1. Запустите локальные сервисы (если требуется):
+4. Запустите локальные сервисы (если требуется):
 
 ```powershell
 docker compose up -d
 ```
 
-1. Запустите Streamlit (рекомендуется запускать как модуль):
+5. Запустите Streamlit (рекомендуется запускать как модуль):
 
 ```powershell
 $env:PYTHONPATH = 'src'; python -m streamlit run src/notebookllama/Home.py
 ```
 
-Откройте [http://localhost:8501/](http://localhost:8501/) в браузере.
+Откройте http://localhost:8501/ в браузере.
+
+---
+
+## Try it — короткая сводка
+
+В PowerShell (в корне репозитория):
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+docker compose up -d    # опционально
+$env:PYTHONPATH = 'src'; python -m streamlit run src/notebookllama/Home.py
+```
 
 ---
 
