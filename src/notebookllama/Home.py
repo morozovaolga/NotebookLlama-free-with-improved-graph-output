@@ -401,6 +401,164 @@ except Exception:
 st.markdown("---")
 st.markdown("## NotebookLlaMa - Home🦙")
 
+# Helper functions to pretty-print long LLM outputs
+def _clean_summary_text(s: str) -> str:
+    if not s:
+        return ""
+    try:
+        import re
+        # replace repeated non-breaking markers
+        s = s.replace('\uf0ff', '- ')
+        # common bullet-like markers used in some PDFs
+        s = s.replace('', '\n\n- ')
+        # collapse many spaces
+        s = re.sub(r"[ ]{2,}", ' ', s)
+        # ensure paragraphs between sentences when punctuation followed by capital Cyrillic letter
+        s = re.sub(r'([.!?])\s+([А-ЯЁ])', r'\1\n\n\2', s)
+        # ensure newlines around headings like "ЭТАП" or all-caps short words
+        s = re.sub(r'\n?\s*(ЭТАП\b)', r'\n\n\1', s)
+        return s.strip()
+    except Exception:
+        return s
+
+
+def _format_bullet_points(bp) -> str:
+    # bp may be list or string
+    try:
+        if not bp:
+            return ''
+        if isinstance(bp, list):
+            return '\n'.join([f'- {x}' for x in bp])
+        txt = str(bp)
+        # if the string already contains explicit bullets, normalize them
+        txt = txt.replace('', '\n- ')
+        # try to split by lines or sentences and create bullets
+        import re
+        lines = [l.strip() for l in re.split(r'\n{1,}|\r|\.|\n- ', txt) if l.strip()]
+        # prefer lines that are not too long
+        bullets = []
+        for l in lines:
+            # avoid repeating the same long header
+            if len(l) > 400:
+                # truncate long items
+                bullets.append('- ' + l[:300].strip() + '...')
+            else:
+                bullets.append('- ' + l)
+        return '\n'.join(bullets)
+    except Exception:
+        return str(bp)
+
+
+def _try_parse_mind_map(mm_raw):
+    # if mind_map is a string representation of a dict, try to parse and normalize node labels
+    try:
+        import ast
+        if isinstance(mm_raw, str) and mm_raw.strip().startswith('{'):
+            parsed = ast.literal_eval(mm_raw)
+            # truncate node labels to reasonable length
+            nodes = parsed.get('nodes', [])
+            for n in nodes:
+                if isinstance(n, dict) and 'label' in n and isinstance(n['label'], str):
+                    if len(n['label']) > 200:
+                        n['label'] = n['label'][:200] + '...'
+            parsed['nodes'] = nodes
+            return parsed
+    except Exception:
+        pass
+    return mm_raw
+
+# --- Presets for quick tuning (fast-summary, balanced, detailed, mindmap) ---
+PRESETS = {
+    'fast-summary': {
+        'hf_fallback_model': 'distilgpt2',
+        'hf_gen_temperature': 0.0,
+        'hf_gen_max_tokens': 128,
+        'hf_gen_top_k': 50,
+        'hf_gen_top_p': 0.9,
+        'hf_gen_do_sample': False,
+    },
+    'balanced-summary': {
+        'hf_fallback_model': 'gpt2',
+        'hf_gen_temperature': 0.05,
+        'hf_gen_max_tokens': 256,
+        'hf_gen_top_k': 40,
+        'hf_gen_top_p': 0.92,
+        'hf_gen_do_sample': False,
+    },
+    'detailed-summary': {
+        'hf_fallback_model': 'gpt2-medium',
+        'hf_gen_temperature': 0.1,
+        'hf_gen_max_tokens': 512,
+        'hf_gen_top_k': 50,
+        'hf_gen_top_p': 0.95,
+        'hf_gen_do_sample': False,
+    },
+    'mindmap-fast': {
+        'hf_fallback_model': 'distilgpt2',
+        'hf_gen_temperature': 0.0,
+        'hf_gen_max_tokens': 160,
+        'hf_gen_top_k': 40,
+        'hf_gen_top_p': 0.9,
+        'hf_gen_do_sample': False,
+    }
+}
+
+def apply_preset(preset_name: str):
+    """Apply preset values into session_state and environment variables."""
+    p = PRESETS.get(preset_name)
+    if not p:
+        return
+    try:
+        # update model
+        st.session_state.hf_fallback_model = p.get('hf_fallback_model', st.session_state.hf_fallback_model)
+        os.environ['HF_FALLBACK_MODEL'] = str(st.session_state.hf_fallback_model)
+    except Exception:
+        pass
+    try:
+        st.session_state.hf_gen_temperature = float(p.get('hf_gen_temperature', st.session_state.hf_gen_temperature))
+        os.environ['HF_GEN_TEMPERATURE'] = str(st.session_state.hf_gen_temperature)
+    except Exception:
+        pass
+    try:
+        st.session_state.hf_gen_max_tokens = int(p.get('hf_gen_max_tokens', st.session_state.hf_gen_max_tokens))
+        os.environ['HF_GEN_MAX_TOKENS'] = str(st.session_state.hf_gen_max_tokens)
+    except Exception:
+        pass
+    try:
+        st.session_state.hf_gen_top_k = int(p.get('hf_gen_top_k', st.session_state.hf_gen_top_k))
+        os.environ['HF_GEN_TOP_K'] = str(st.session_state.hf_gen_top_k)
+    except Exception:
+        pass
+    try:
+        st.session_state.hf_gen_top_p = float(p.get('hf_gen_top_p', st.session_state.hf_gen_top_p))
+        os.environ['HF_GEN_TOP_P'] = str(st.session_state.hf_gen_top_p)
+    except Exception:
+        pass
+    try:
+        st.session_state.hf_gen_do_sample = bool(p.get('hf_gen_do_sample', st.session_state.hf_gen_do_sample))
+        os.environ['HF_GEN_DO_SAMPLE'] = '1' if st.session_state.hf_gen_do_sample else '0'
+    except Exception:
+        pass
+
+# Sidebar preset selector
+st.sidebar.markdown("---")
+preset_choice = st.sidebar.selectbox("Quick presets", options=['(none)', 'fast-summary', 'balanced-summary', 'detailed-summary', 'mindmap-fast'], index=0)
+colp1, colp2 = st.sidebar.columns([1,1])
+with colp1:
+    if st.sidebar.button("Apply preset"):
+        if preset_choice and preset_choice != '(none)':
+            apply_preset(preset_choice)
+            st.experimental_rerun()
+with colp2:
+    if st.sidebar.button("Apply & Load model"):
+        if preset_choice and preset_choice != '(none)':
+            apply_preset(preset_choice)
+            # trigger background load
+            t = threading.Thread(target=_background_load_model, args=(st.session_state.hf_fallback_model,), daemon=True)
+            t.start()
+            st.experimental_rerun()
+
+
 # Show quick status hints for local services (Ollama, DB)
 try:
     try:
@@ -479,6 +637,30 @@ if "use_hf_fallback" not in st.session_state:
     st.session_state.use_hf_fallback = False
 st.session_state.use_hf_fallback = st.sidebar.checkbox("Use local HF fallback if Ollama unavailable", value=st.session_state.use_hf_fallback)
 
+# Hybrid / extractive defaults: allow users to prefer extractive summaries and run LLM refine in background
+if "always_extractive_default" not in st.session_state:
+    st.session_state.always_extractive_default = False
+st.session_state.always_extractive_default = st.sidebar.checkbox("Always use extractive by default (fast)", value=st.session_state.always_extractive_default)
+
+# Expose an option to auto-apply refined LLM result when it becomes available
+if "auto_apply_llm_refine" not in st.session_state:
+    st.session_state.auto_apply_llm_refine = True
+st.session_state.auto_apply_llm_refine = st.sidebar.checkbox("Auto-apply LLM refine result when ready", value=st.session_state.auto_apply_llm_refine)
+
+# Ensure the operational extractive toggle defaults to the user's preference
+if "use_extractive_fallback" not in st.session_state:
+    st.session_state.use_extractive_fallback = bool(st.session_state.always_extractive_default)
+else:
+    # if user toggles the global default, prefer that when unset explicitly
+    st.session_state.use_extractive_fallback = st.session_state.use_extractive_fallback or bool(st.session_state.always_extractive_default)
+
+# Background refine state
+if "_llm_refine_running" not in st.session_state:
+    st.session_state._llm_refine_running = False
+if "llm_refined_result" not in st.session_state:
+    st.session_state.llm_refined_result = None
+
+
 if file_input is not None:
     # Save raw bytes in session state to allow re-generation without re-upload
     if isinstance(file_input, io.BytesIO):
@@ -507,6 +689,125 @@ if file_input is not None:
             st.warning("DB not configured — results will not be saved. To enable DB, set pgql_user/pgql_psw/pgql_db in your environment.")
     except Exception:
         pass
+    # Second button (hybrid): Extractive immediately, LLM refine in background
+    colx1, colx2 = st.columns([1,1])
+    with colx2:
+        if st.button("Extractive + LLM refine"):
+            if st.session_state._processing:
+                st.info("A processing job is already running. Please wait for it to finish.")
+            else:
+                # run extractive path immediately (same as extractive fallback)
+                st.session_state._processing = True
+                try:
+                    from notebookllama.processing import extractive_summary, parse_file, compact_bullets, topic_segmentation, shorten_mindmap_nodes
+                    import tempfile
+                    import asyncio
+
+                    tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+                    tmp.write(st.session_state._uploaded_bytes)
+                    tmp.flush()
+                    tmp.close()
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    text, _, _ = loop.run_until_complete(parse_file(tmp.name))
+                    n_sent = 3
+                    if text and len(text) > 4000:
+                        n_sent = 5
+                    summary_text = extractive_summary(text or '', num_sentences=n_sent)
+                    bullets = compact_bullets(text or '', num_bullets=6)
+                    segments = topic_segmentation(text or '', max_chars=2000)
+                    mind_map_obj = {'type': 'Иерархическая', 'nodes': [{'id': 'root', 'label': 'Summary'}], 'edges': []}
+                    for i, seg in enumerate(segments[:6], start=1):
+                        nid = f'n{i}'
+                        lab = seg.split('\n')[0][:200]
+                        mind_map_obj['nodes'].append({'id': nid, 'label': lab})
+                        mind_map_obj['edges'].append({'from': 'root', 'to': nid, 'type': 'contains'})
+                    mind_map_obj = shorten_mindmap_nodes(mind_map_obj, max_label_len=120)
+                    st.session_state.workflow_results = {
+                        'md_content': text or '',
+                        'summary': summary_text,
+                        'q_and_a': '',
+                        'bullet_points': bullets,
+                        'mind_map': mind_map_obj,
+                    }
+                    try:
+                        os.remove(tmp.name)
+                    except Exception:
+                        pass
+                    st.session_state._last_processed_hash = st.session_state._uploaded_hash
+                    st.success('Extractive summary generated (fast). Background LLM refine started.')
+                except Exception as ex:
+                    st.warning(f"Extractive fallback failed: {ex}")
+                finally:
+                    st.session_state._processing = False
+
+                # Start background refine thread that runs full LLM workflow and writes result to a temp JSON file
+                # to avoid direct writes to streamlit's session_state from background threads.
+                import json, tempfile, uuid
+
+                # mark running before starting the thread (main thread owns this flag)
+                st.session_state._llm_refine_running = True
+
+                def _background_refine_to_file(bytes_blob, title, out_path):
+                    try:
+                        # propagate HF fallback env into workflow
+                        try:
+                            if st.session_state.get('use_hf_fallback'):
+                                os.environ['USE_HF_FALLBACK'] = '1'
+                            else:
+                                if 'USE_HF_FALLBACK' in os.environ:
+                                    del os.environ['USE_HF_FALLBACK']
+                        except Exception:
+                            pass
+                        res = sync_run_workflow(io.BytesIO(bytes_blob), title)
+                        # normalize into a dict similar to workflow_results
+                        try:
+                            if isinstance(res, (list, tuple)):
+                                md_content, summary, q_and_a, bullet_points, mind_map = res
+                            elif hasattr(res, 'md_content') or hasattr(res, 'summary'):
+                                evt = res
+                                md_content = getattr(evt, 'md_content', '')
+                                summary = getattr(evt, 'summary', '')
+                                q_and_a = getattr(evt, 'q_and_a', '')
+                                bullet_points = getattr(evt, 'bullet_points', None) or getattr(evt, 'highlights', [])
+                                mind_map = getattr(evt, 'mind_map', None)
+                            else:
+                                md_content = res
+                                summary = ''
+                                q_and_a = ''
+                                bullet_points = []
+                                mind_map = None
+                        except Exception:
+                            md_content = res
+                            summary = ''
+                            q_and_a = ''
+                            bullet_points = []
+                            mind_map = None
+                        out = {
+                            'md_content': md_content,
+                            'summary': summary,
+                            'q_and_a': q_and_a,
+                            'bullet_points': bullet_points,
+                            'mind_map': mind_map,
+                        }
+                        # write atomically
+                        tmpf = out_path + f'.{uuid.uuid4().hex}.tmp'
+                        with open(tmpf, 'w', encoding='utf-8') as fh:
+                            json.dump(out, fh, ensure_ascii=False)
+                        os.replace(tmpf, out_path)
+                    except Exception as _e:
+                        try:
+                            with open(out_path, 'w', encoding='utf-8') as fh:
+                                json.dump({'error': str(_e)}, fh)
+                        except Exception:
+                            pass
+
+                # choose a temp file path based on upload hash if available, otherwise random
+                import tempfile, os
+                upload_hash = st.session_state.get('_uploaded_hash') or uuid.uuid4().hex
+                out_path = os.path.join(tempfile.gettempdir(), f'notebookllama_llm_refine_{upload_hash}.json')
+                t = threading.Thread(target=_background_refine_to_file, args=(st.session_state._uploaded_bytes, st.session_state.document_title, out_path), daemon=True)
+                t.start()
     # First button: Process Document
     # Process Document button with guards to avoid duplicate processing
     if st.button("Process Document", type="primary"):
@@ -523,6 +824,66 @@ if file_input is not None:
                 st.info("This file was already processed — using cached results.")
             else:
                 st.session_state._processing = True
+                # If extractive fallback is enabled, perform a fast local extractive summary and skip LLM
+                if st.session_state.get('use_extractive_fallback'):
+                    try:
+                        from notebookllama.processing import extractive_summary, parse_file
+
+                        import tempfile
+                        import asyncio
+
+                        tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+                        tmp.write(st.session_state._uploaded_bytes)
+                        tmp.flush()
+                        tmp.close()
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        text, _, _ = loop.run_until_complete(parse_file(tmp.name))
+                        # pick number of sentences based on text length
+                        n_sent = 3
+                        if text and len(text) > 4000:
+                            n_sent = 5
+                        summary_text = extractive_summary(text or '', num_sentences=n_sent)
+                        # compact bullets and topic segmentation
+                        try:
+                            from notebookllama.processing import compact_bullets, topic_segmentation, shorten_mindmap_nodes
+                            bullets = compact_bullets(text or '', num_bullets=6)
+                            segments = topic_segmentation(text or '', max_chars=2000)
+                            # create a very small mind_map from segments
+                            mind_map_obj = {'type': 'Иерархическая', 'nodes': [{'id': 'root', 'label': 'Summary'}], 'edges': []}
+                            for i, seg in enumerate(segments[:6], start=1):
+                                nid = f'n{i}'
+                                lab = seg.split('\n')[0][:200]
+                                mind_map_obj['nodes'].append({'id': nid, 'label': lab})
+                                mind_map_obj['edges'].append({'from': 'root', 'to': nid, 'type': 'contains'})
+                            mind_map_obj = shorten_mindmap_nodes(mind_map_obj, max_label_len=120)
+                        except Exception:
+                            bullets = []
+                            mind_map_obj = None
+
+                        st.session_state.workflow_results = {
+                            'md_content': text or '',
+                            'summary': summary_text,
+                            'q_and_a': '',
+                            'bullet_points': bullets,
+                            'mind_map': mind_map_obj,
+                        }
+                        try:
+                            os.remove(tmp.name)
+                        except Exception:
+                            pass
+                        st.session_state._last_processed_hash = st.session_state._uploaded_hash
+                        st.session_state._processing = False
+                        st.success('Extractive summary generated (fast).')
+                        # refresh UI to show results
+                        try:
+                            if hasattr(st, 'experimental_rerun'):
+                                st.experimental_rerun()
+                        except Exception:
+                            pass
+                        # skip the LLM workflow
+                    except Exception as ex:
+                        st.warning(f"Extractive fallback failed, will run full workflow: {ex}")
                 with st.spinner("Processing document... This may take a few minutes."):
                     try:
                         # Propagate HF fallback preference into environment for the workflow
@@ -598,6 +959,85 @@ if file_input is not None:
 
         # Отладочный вывод структуры результатов
         st.write("### Debug: workflow_results", results)
+
+        # Hybrid refine status: check for background refine temp file and show controls
+        try:
+            import tempfile, os, json
+            upload_hash = st.session_state.get('_uploaded_hash')
+            if upload_hash:
+                out_path = os.path.join(tempfile.gettempdir(), f'notebookllama_llm_refine_{upload_hash}.json')
+            else:
+                out_path = None
+
+            # if a temp file exists (background thread wrote the result), load it into session_state
+            if out_path and os.path.exists(out_path):
+                try:
+                    with open(out_path, 'r', encoding='utf-8') as fh:
+                        refined = json.load(fh)
+                    # move into session state for display and remove file
+                    st.session_state.llm_refined_result = refined
+                    try:
+                        os.remove(out_path)
+                    except Exception:
+                        pass
+                    # background refine finished
+                    st.session_state._llm_refine_running = False
+                except Exception:
+                    pass
+
+            # show running indicator
+            if st.session_state.get('_llm_refine_running'):
+                st.info("Background LLM refine is running — the UI will update when the refined result is ready.")
+
+            # if a refined result arrived in session_state, surface it and allow apply/dismiss
+            if st.session_state.get('llm_refined_result') is not None:
+                refined = st.session_state.llm_refined_result
+                if isinstance(refined, dict) and refined.get('error'):
+                    st.error(f"Background LLM refine failed: {refined.get('error')}")
+                    # clear to avoid repeated messages
+                    st.session_state.llm_refined_result = None
+                else:
+                    # Show a small preview and apply options
+                    with st.expander("Background LLM refine result ready — preview"):
+                        try:
+                            st.write(refined)
+                        except Exception:
+                            st.write(str(refined))
+
+                    # Auto-apply if user opted in
+                    if st.session_state.get('auto_apply_llm_refine'):
+                        try:
+                            st.session_state.workflow_results = st.session_state.llm_refined_result
+                            st.session_state.llm_refined_result = None
+                            st.success("LLM refined result applied automatically.")
+                            try:
+                                if hasattr(st, 'experimental_rerun'):
+                                    st.experimental_rerun()
+                            except Exception:
+                                pass
+                        except Exception as _e:
+                            st.error(f"Could not apply refined result: {_e}")
+                    else:
+                        c1, c2 = st.columns([1,1])
+                        with c1:
+                            if st.button("Apply refined result"):
+                                try:
+                                    st.session_state.workflow_results = st.session_state.llm_refined_result
+                                    st.session_state.llm_refined_result = None
+                                    st.success("LLM refined result applied.")
+                                    try:
+                                        if hasattr(st, 'experimental_rerun'):
+                                            st.experimental_rerun()
+                                    except Exception:
+                                        pass
+                                except Exception as _e:
+                                    st.error(f"Apply failed: {_e}")
+                        with c2:
+                            if st.button("Dismiss refined result"):
+                                st.session_state.llm_refined_result = None
+                                st.info("Refined result dismissed.")
+        except Exception:
+            pass
 
         # If the workflow used any fallback/repair (e.g., Ollama timed out or returned invalid JSON),
         # show a banner with Retry and Increase timeout controls.
@@ -687,7 +1127,8 @@ if file_input is not None:
         # Summary
         st.markdown("## Summary")
         if results["summary"]:
-            st.markdown(results["summary"])
+            cleaned = _clean_summary_text(results["summary"])
+            st.markdown(cleaned)
         else:
             st.info("No summary generated.")
 
@@ -695,11 +1136,8 @@ if file_input is not None:
         st.markdown("## Bullet Points")
         bps = results.get("bullet_points")
         if bps:
-            # support both list and preformatted string
-            if isinstance(bps, list):
-                st.markdown("\n".join([f"- {x}" for x in bps]))
-            else:
-                st.markdown(bps)
+            formatted = _format_bullet_points(bps)
+            st.markdown(formatted)
         else:
             st.info("No bullet points generated.")
 
@@ -791,15 +1229,21 @@ if file_input is not None:
                             st.session_state._processing = False
         else:
             # If mind_map is a dict (JSON), pretty-print or render minimal HTML
-            if isinstance(mm, dict):
-                st.json(mm)
+            # try to parse and normalize mind_map strings
+            mm_norm = _try_parse_mind_map(mm)
+            if isinstance(mm_norm, dict):
+                st.json(mm_norm)
             else:
                 try:
-                    # If string HTML, show it; otherwise show as markdown
-                    if mm.strip().startswith("<"):
-                        components.html(mm, height=800, scrolling=True)
+                    # If string HTML, show it; otherwise show as markdown (shorten very long strings)
+                    if isinstance(mm_norm, str) and mm_norm.strip().startswith("<"):
+                        components.html(mm_norm, height=800, scrolling=True)
                     else:
-                        st.markdown(mm)
+                        mm_txt = str(mm_norm)
+                        if len(mm_txt) > 10000:
+                            st.markdown(mm_txt[:10000] + '\n\n... (truncated)')
+                        else:
+                            st.markdown(mm_txt)
                 except Exception:
                     st.markdown(str(mm))
 

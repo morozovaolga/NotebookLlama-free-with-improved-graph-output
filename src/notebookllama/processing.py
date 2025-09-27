@@ -189,3 +189,184 @@ async def get_plots_and_tables(
         file_path=file_path, with_images=True, with_tables=True
     )
     return images, tables
+
+
+def extractive_summary(text: str, num_sentences: int = 3) -> str:
+    """Simple extractive summary based on TF-like scoring using sentence term frequencies.
+
+    This is intentionally lightweight and has no external dependencies. It:
+    - splits text into sentences (simple regex),
+    - tokenizes on word characters, lowercases,
+    - computes term frequencies (TF) and scores sentences by sum of TF for tokens in the sentence,
+    - returns top N sentences in the original order joined as a short summary.
+
+    Not as good as transformer generation, but fast on CPU and suitable as a fallback.
+    """
+    try:
+        import re
+        from collections import Counter, defaultdict
+
+        if not text or not isinstance(text, str):
+            return ""
+
+        # Simple sentence splitter (covers common cases)
+        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]
+        if len(sentences) == 0:
+            return ""
+        if len(sentences) <= num_sentences:
+            # short text — return as-is
+            return "\n\n".join(sentences)
+
+        # Tokenize words
+        words = re.findall(r"\w+", text.lower())
+        if not words:
+            return "\n\n".join(sentences[:num_sentences])
+
+        tf = Counter(words)
+
+        # Score each sentence
+        sent_scores = []
+        for idx, s in enumerate(sentences):
+            toks = re.findall(r"\w+", s.lower())
+            if not toks:
+                score = 0.0
+            else:
+                score = sum(tf.get(t, 0) for t in toks) / (len(toks) + 0.001)
+            sent_scores.append((idx, score, s))
+
+        # pick top-N by score
+        top = sorted(sent_scores, key=lambda x: x[1], reverse=True)[:num_sentences]
+        # restore original order
+        top_sorted = sorted(top, key=lambda x: x[0])
+        summary_sentences = [s for (_, _, s) in top_sorted]
+        return "\n\n".join(summary_sentences)
+    except Exception:
+        # on any failure, return the first N sentences as a safe fallback
+        try:
+            import re
+
+            sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]
+            return "\n\n".join(sentences[:num_sentences])
+        except Exception:
+            return ""
+
+
+def compact_bullets(text: str, num_bullets: int = 6) -> list:
+    """Return a list of compact bullet lines extracted from text using the same TF scoring.
+
+    Fast, no external deps. Picks top-scoring sentences and returns them as short bullets.
+    """
+    try:
+        import re
+        from collections import Counter
+
+        if not text or not isinstance(text, str):
+            return []
+
+        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]
+        if not sentences:
+            return []
+
+        words = re.findall(r"\w+", text.lower())
+        if not words:
+            # fallback: take first num_bullets sentences
+            return sentences[:num_bullets]
+
+        tf = Counter(words)
+        sent_scores = []
+        for idx, s in enumerate(sentences):
+            toks = re.findall(r"\w+", s.lower())
+            if not toks:
+                score = 0.0
+            else:
+                score = sum(tf.get(t, 0) for t in toks) / (len(toks) + 0.001)
+            sent_scores.append((idx, score, s))
+
+        top = sorted(sent_scores, key=lambda x: x[1], reverse=True)[:num_bullets]
+        # return as short strings, original order
+        top_sorted = sorted(top, key=lambda x: x[0])
+        bullets = [t[2].strip() for t in top_sorted]
+        # shorten overly long bullets
+        bullets_short = [ (b if len(b) <= 200 else b[:197] + '...') for b in bullets ]
+        return bullets_short
+    except Exception:
+        try:
+            import re
+            sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]
+            return sentences[:num_bullets]
+        except Exception:
+            return []
+
+
+def topic_segmentation(text: str, max_chars: int = 2000) -> list:
+    """Very lightweight topic segmentation: split text by paragraphs/headings into segments up to max_chars.
+
+    Heuristics:
+    - split on double newlines into paragraphs
+    - start new segment when accumulated length exceeds max_chars
+    - start new segment when a paragraph looks like a heading (contains 'ЭТАП' or mostly uppercase)
+    """
+    try:
+        import re
+        if not text or not isinstance(text, str):
+            return []
+        paras = [p.strip() for p in re.split(r'\n{2,}', text) if p.strip()]
+        segments = []
+        cur = ''
+        for p in paras:
+            # detect heading-like paragraph
+            is_heading = False
+            up_chars = sum(1 for ch in p if ch.isupper())
+            alpha_chars = sum(1 for ch in p if ch.isalpha())
+            if 'ЭТАП' in p or (alpha_chars > 0 and up_chars / (alpha_chars + 0.001) > 0.6 and len(p) > 20):
+                is_heading = True
+
+            if is_heading and cur:
+                segments.append(cur.strip())
+                cur = p + '\n\n'
+                continue
+
+            if len(cur) + len(p) > max_chars and cur:
+                segments.append(cur.strip())
+                cur = p + '\n\n'
+            else:
+                cur += p + '\n\n'
+
+        if cur.strip():
+            segments.append(cur.strip())
+        return segments
+    except Exception:
+        return [text]
+
+
+def shorten_mindmap_nodes(mm: Union[dict, str], max_label_len: int = 120) -> Union[dict, str]:
+    """If mindmap is a dict with nodes, shorten long node labels using extractive_summary or truncation."""
+    try:
+        if isinstance(mm, str):
+            # try evaluate to dict
+            import ast
+            try:
+                mm_parsed = ast.literal_eval(mm)
+            except Exception:
+                return mm
+        else:
+            mm_parsed = mm
+
+        if not isinstance(mm_parsed, dict):
+            return mm
+
+        nodes = mm_parsed.get('nodes', [])
+        for n in nodes:
+            if isinstance(n, dict) and 'label' in n and isinstance(n['label'], str):
+                lab = n['label']
+                if len(lab) > max_label_len:
+                    # Try to create a single-sentence extractive summary
+                    s = extractive_summary(lab, num_sentences=1)
+                    if s and len(s) < len(lab):
+                        n['label'] = s if len(s) <= max_label_len else s[:max_label_len-3] + '...'
+                    else:
+                        n['label'] = lab[:max_label_len-3] + '...'
+        mm_parsed['nodes'] = nodes
+        return mm_parsed
+    except Exception:
+        return mm
