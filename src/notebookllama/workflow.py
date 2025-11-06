@@ -155,10 +155,12 @@ class NotebookLMWorkflow(Workflow):
 Текст для анализа:
 """
             ollama_prompt += text[:10000]  # ограничение на длину
+            # Get Ollama model from environment variable (set by UI) or use default
+            ollama_model = os.getenv('OLLAMA_MODEL', 'mistral')
             try:
                 response = requests.post(
                     "http://localhost:11434/api/generate",
-                    json={"model": "mistral", "prompt": ollama_prompt},
+                    json={"model": ollama_model, "prompt": ollama_prompt},
                     stream=True,
                     timeout=OLLAMA_TIMEOUT,
                 )
@@ -349,9 +351,10 @@ class NotebookLMWorkflow(Workflow):
             # If no candidates and result_raw empty, try a non-stream POST to capture full response
             if not json_candidates and not result_raw:
                 try:
+                    ollama_model = os.getenv('OLLAMA_MODEL', 'mistral')
                     resp2 = requests.post(
                         "http://localhost:11434/api/generate",
-                        json={"model": "mistral", "prompt": ollama_prompt},
+                        json={"model": ollama_model, "prompt": ollama_prompt},
                         timeout=OLLAMA_TIMEOUT,
                     )
                     result_raw = resp2.text or result_raw
@@ -498,10 +501,11 @@ class NotebookLMWorkflow(Workflow):
                         "Поле mindmap оставь как есть или сгенерируй пустой объект {} если нельзя. ОТВЕЧАЙ ТОЛЬКО JSON, НИЧЕГО БОЛЕЕ.\n\n"
                     )
                     repair_payload = repair_prompt + "PARTIAL_JSON=" + json.dumps(partial, ensure_ascii=False) + "\n\nTEXT=" + (text[:8000] if text else "")
+                    ollama_model = os.getenv('OLLAMA_MODEL', 'mistral')
                     try:
                         fb = requests.post(
                             "http://localhost:11434/api/generate",
-                            json={"model": "mistral", "prompt": repair_payload},
+                            json={"model": ollama_model, "prompt": repair_payload},
                             stream=True,
                             timeout=OLLAMA_TIMEOUT,
                         )
@@ -521,9 +525,10 @@ class NotebookLMWorkflow(Workflow):
                     # If streaming returned empty, try a non-streamed request as fallback
                     if not repair_raw:
                         try:
+                            ollama_model = os.getenv('OLLAMA_MODEL', 'mistral')
                             fb2 = requests.post(
                                 "http://localhost:11434/api/generate",
-                                json={"model": "mistral", "prompt": repair_payload},
+                                json={"model": ollama_model, "prompt": repair_payload},
                                 timeout=OLLAMA_TIMEOUT,
                             )
                             repair_raw = fb2.text or repair_raw
@@ -562,10 +567,11 @@ class NotebookLMWorkflow(Workflow):
                         "Требуется 3-5 полных предложений, развёрнутый стиль, минимум 180 символов. "
                         "Ответ — ТОЛЬКО текст резюме (без JSON).\n\nТЕКСТ="
                     )
+                    ollama_model = os.getenv('OLLAMA_MODEL', 'mistral')
                     try:
                         ex = requests.post(
                             "http://localhost:11434/api/generate",
-                            json={"model": "mistral", "prompt": expand_prompt + (text[:6000] if text else "")},
+                            json={"model": ollama_model, "prompt": expand_prompt + (text[:6000] if text else "")},
                             stream=True,
                             timeout=OLLAMA_TIMEOUT,
                         )
@@ -583,9 +589,10 @@ class NotebookLMWorkflow(Workflow):
                     expand_raw = "".join(expand_chunks) or (ex.text if hasattr(ex, 'text') else "")
                     if not expand_raw:
                         try:
+                            ollama_model = os.getenv('OLLAMA_MODEL', 'mistral')
                             ex2 = requests.post(
                                 "http://localhost:11434/api/generate",
-                                json={"model": "mistral", "prompt": expand_prompt + (text[:6000] if text else "")},
+                                json={"model": ollama_model, "prompt": expand_prompt + (text[:6000] if text else "")},
                                 timeout=OLLAMA_TIMEOUT,
                             )
                             expand_raw = ex2.text or expand_raw
@@ -690,10 +697,11 @@ class NotebookLMWorkflow(Workflow):
                         "{\"type\": \"Ассоциативная\", \"nodes\": [{\"id\":\"n1\",\"label\":\"A\"},{\"id\":\"n2\",\"label\":\"B\"},{\"id\":\"n3\",\"label\":\"C\"}], \"edges\": [{\"from\":\"n1\",\"to\":\"n2\",\"type\":\"пример\"},{\"from\":\"n2\",\"to\":\"n3\",\"type\":\"дополнение\"},{\"from\":\"n1\",\"to\":\"n3\",\"type\":\"контраст\"}]}\n"
                         "Отвечай строго в этом формате — только один JSON-объект. Текст для анализа:\n"
                     )
+                    ollama_model = os.getenv('OLLAMA_MODEL', 'mistral')
                     try:
                         fb = requests.post(
                             "http://localhost:11434/api/generate",
-                            json={"model": "mistral", "prompt": fallback_prompt + text[:8000]},
+                            json={"model": ollama_model, "prompt": fallback_prompt + text[:8000]},
                             stream=True,
                             timeout=OLLAMA_TIMEOUT,
                         )
@@ -711,9 +719,10 @@ class NotebookLMWorkflow(Workflow):
                     mindmap_raw = "".join(mindmap_chunks) or (fb.text if hasattr(fb, 'text') else "")
                     if not mindmap_raw:
                         try:
+                            ollama_model = os.getenv('OLLAMA_MODEL', 'mistral')
                             fb2 = requests.post(
                                 "http://localhost:11434/api/generate",
-                                json={"model": "mistral", "prompt": fallback_prompt + text[:8000]},
+                                json={"model": ollama_model, "prompt": fallback_prompt + text[:8000]},
                                 timeout=OLLAMA_TIMEOUT,
                             )
                             mindmap_raw = fb2.text or mindmap_raw

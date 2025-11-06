@@ -138,8 +138,24 @@ async def parse_file(
                 # report the reasons tried
                 raise Exception(f"Could not parse PDF; attempted: {tried}")
         else:
-            with open(file_path, "r", encoding="utf-8") as f:
-                text = f.read()
+            # Read text file with safe encoding handling
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    text = f.read()
+            except UnicodeDecodeError:
+                # Try with utf-8-sig to handle BOM
+                try:
+                    with open(file_path, "r", encoding="utf-8-sig") as f:
+                        text = f.read()
+                except UnicodeDecodeError:
+                    # Fallback: read as bytes and decode with error handling
+                    with open(file_path, "rb") as f:
+                        content = f.read()
+                        try:
+                            text = content.decode("utf-8", errors="replace")
+                        except Exception:
+                            # Last resort: try latin-1 (never fails)
+                            text = content.decode("latin-1", errors="replace")
         if with_images:
             rename_and_remove_past_images()
             # Здесь можно добавить обработку изображений через Pillow/pytesseract

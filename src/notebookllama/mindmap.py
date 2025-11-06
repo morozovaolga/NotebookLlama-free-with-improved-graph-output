@@ -150,9 +150,11 @@ async def get_mind_map(summary: str, highlights: List[str]) -> Union[str, None]:
                 if model_name == "ollama":
                     # Генерация через Ollama API
                     ollama_prompt = prompt
+                    import os
+                    ollama_model = os.getenv('OLLAMA_MODEL', 'mistral')
                     response = requests.post(
                         "http://localhost:11434/api/generate",
-                        json={"model": "mistral", "prompt": ollama_prompt},
+                        json={"model": ollama_model, "prompt": ollama_prompt},
                         stream=True
                     )
                     generated = ""

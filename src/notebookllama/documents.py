@@ -10,8 +10,14 @@ from sqlalchemy import (
     Connection,
     insert,
     select,
+    text,
 )
 from typing import Optional, List, cast, Union
+
+# Set PostgreSQL client encoding environment variable BEFORE importing psycopg2
+# This ensures psycopg2 uses UTF-8 encoding from the start
+import os
+os.environ['PGCLIENTENCODING'] = 'UTF8'
 
 
 def apply_string_correction(string: str) -> str:
@@ -67,16 +73,80 @@ class DocumentManager:
         if not self._engine:
             # DB not configured; nothing to connect
             return
+        
+        # Ensure PGCLIENTENCODING is set (should be set at module level, but double-check)
+        import os as os_module
+        os_module.environ['PGCLIENTENCODING'] = 'UTF8'
+        
         if isinstance(self._engine, str):
-            self._engine = create_engine(self._engine)
-        self._connection = self._engine.connect()
-        # Ensure the DB client encoding is UTF8 to avoid codec mismatch when DB returns bytes
+            # Add connection arguments to ensure UTF-8 encoding
+            # For psycopg2, we need to set encoding explicitly to avoid decode errors
+            # Add client_encoding to connection string if not already present
+            engine_url = self._engine
+            if 'psycopg2' in engine_url and 'client_encoding' not in engine_url:
+                # Add client_encoding parameter to the connection string
+                separator = '&' if '?' in engine_url else '?'
+                engine_url = f"{engine_url}{separator}client_encoding=UTF8"
+            
+            # Create engine with explicit encoding settings
+            try:
+                self._engine = create_engine(
+                    engine_url,
+                    connect_args={
+                        'client_encoding': 'UTF8',
+                        'options': '-c client_encoding=UTF8'
+                    } if 'psycopg2' in engine_url else {},
+                    pool_pre_ping=True,  # Verify connections before using
+                    # Set encoding at connection pool level
+                    poolclass=None,  # Use default pool
+                )
+            except Exception as e:
+                # If engine creation fails, try with minimal settings
+                import logging
+                logging.warning(f"Engine creation failed: {e}. Retrying with minimal settings...")
+                self._engine = create_engine(engine_url, pool_pre_ping=True)
+        
         try:
-            # Works for Postgres/psycopg2
-            self._connection.execute("SET client_encoding = 'UTF8';")
-        except Exception:
-            # best-effort; ignore if not supported by the backend
-            pass
+            self._connection = self._engine.connect()
+            # Ensure the DB client encoding is UTF8 to avoid codec mismatch when DB returns bytes
+            try:
+                # Works for Postgres/psycopg2 - set encoding explicitly
+                self._connection.execute(text("SET client_encoding = 'UTF8';"))
+                # Also set server encoding if possible
+                try:
+                    self._connection.execute(text("SHOW server_encoding;"))
+                except Exception:
+                    pass
+            except Exception:
+                # best-effort; ignore if not supported by the backend
+                pass
+        except (UnicodeDecodeError, UnicodeError) as e:
+            # If we get a decode error during connection, try to reconnect with explicit encoding
+            import logging
+            logging.warning(f"Unicode decode error during connection: {e}. Retrying with explicit encoding...")
+            # Close any partial connection
+            try:
+                if hasattr(self, '_connection') and self._connection:
+                    self._connection.close()
+            except Exception:
+                pass
+            
+            # Try reconnecting with forced UTF-8
+            if isinstance(self._engine, str):
+                # Force UTF-8 in connection string
+                base_url = self._engine.split('?')[0].split('&')[0]
+                engine_url = f"{base_url}?client_encoding=UTF8"
+                self._engine = create_engine(
+                    engine_url,
+                    connect_args={'client_encoding': 'UTF8'},
+                    pool_pre_ping=True,
+                )
+            self._connection = self._engine.connect()
+        except Exception as e:
+            # Catch any other connection errors
+            import logging
+            logging.error(f"Connection error: {e}")
+            raise
 
     def _create_table(self) -> None:
         # Define the table in metadata and create via metadata.create_all for better backend support
@@ -216,15 +286,37 @@ class DocumentManager:
         result = self.connection.execute(stmt)
         rows = result.fetchall()
         documents = []
+        
+        def safe_str(val):
+            # Normalize any value to a UTF-8-valid Python str. Replace invalid bytes.
+            try:
+                if val is None:
+                    return ""
+                if isinstance(val, bytes):
+                    # decode bytes, try utf-8 then fallback to latin-1, finally replace
+                    try:
+                        s = val.decode('utf-8')
+                    except Exception:
+                        try:
+                            s = val.decode('latin-1')
+                        except Exception:
+                            s = val.decode('utf-8', errors='replace')
+                else:
+                    s = str(val)
+                # Re-encode/decode to ensure any surrogate or invalid chars are replaced
+                return s.encode('utf-8', errors='replace').decode('utf-8')
+            except Exception:
+                return ""
+        
         for row in rows:
             documents.append(
                 ManagedDocument(
-                    document_name=row.document_name,
-                    content=row.content,
-                    summary=row.summary,
-                    q_and_a=row.q_and_a,
-                    mindmap=row.mindmap,
-                    bullet_points=row.bullet_points,
+                    document_name=safe_str(row.document_name),
+                    content=safe_str(row.content),
+                    summary=safe_str(row.summary),
+                    q_and_a=safe_str(row.q_and_a),
+                    mindmap=safe_str(row.mindmap),
+                    bullet_points=safe_str(row.bullet_points),
                 )
             )
         return documents
@@ -235,7 +327,29 @@ class DocumentManager:
         stmt = select(self.table)
         result = self.connection.execute(stmt)
         rows = result.fetchall()
-        return [row.document_name for row in rows]
+        
+        def safe_str(val):
+            # Normalize any value to a UTF-8-valid Python str. Replace invalid bytes.
+            try:
+                if val is None:
+                    return ""
+                if isinstance(val, bytes):
+                    # decode bytes, try utf-8 then fallback to latin-1, finally replace
+                    try:
+                        s = val.decode('utf-8')
+                    except Exception:
+                        try:
+                            s = val.decode('latin-1')
+                        except Exception:
+                            s = val.decode('utf-8', errors='replace')
+                else:
+                    s = str(val)
+                # Re-encode/decode to ensure any surrogate or invalid chars are replaced
+                return s.encode('utf-8', errors='replace').decode('utf-8')
+            except Exception:
+                return ""
+        
+        return [safe_str(row.document_name) for row in rows]
 
     def disconnect(self) -> None:
         if not self._connection:

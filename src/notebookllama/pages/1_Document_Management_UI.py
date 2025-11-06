@@ -10,7 +10,9 @@ from notebookllama.documents import DocumentManager, ManagedDocument
 load_dotenv()
 
 # Initialize the document manager
-engine_url = f"postgresql+psycopg2://{os.getenv('pgql_user')}:{os.getenv('pgql_psw')}@localhost:5432/{os.getenv('pgql_db')}"
+# Add client_encoding parameter to connection string to avoid decode errors
+base_url = f"postgresql+psycopg2://{os.getenv('pgql_user')}:{os.getenv('pgql_psw')}@localhost:5432/{os.getenv('pgql_db')}"
+engine_url = f"{base_url}?client_encoding=UTF8"
 document_manager = DocumentManager(engine_url=engine_url)
 
 
@@ -20,7 +22,16 @@ def fetch_documents(names: Optional[List[str]]) -> List[ManagedDocument]:
 
 
 def fetch_document_names() -> List[str]:
-    return document_manager.get_names()
+    try:
+        return document_manager.get_names()
+    except UnicodeDecodeError as e:
+        # Handle encoding errors gracefully
+        st.error(f"Encoding error when connecting to database: {e}")
+        st.info("Please check database encoding settings. Trying to reconnect...")
+        return []
+    except Exception as e:
+        st.error(f"Error fetching document names: {e}")
+        return []
 
 
 def display_document(document: ManagedDocument) -> None:

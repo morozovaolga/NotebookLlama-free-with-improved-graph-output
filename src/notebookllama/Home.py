@@ -34,12 +34,18 @@ try:
     else:
         import io
         try:
-            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
         except Exception:
             pass
     if hasattr(sys.stderr, 'reconfigure'):
         try:
             sys.stderr.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
+    else:
+        import io
+        try:
+            sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
         except Exception:
             pass
 except Exception:
@@ -50,7 +56,20 @@ from dotenv import load_dotenv
 # Load environment variables from .env (if present). This makes Streamlit/Windows runs
 # pick up pgql_user/pgql_psw/pgql_db without requiring manual export in the shell.
 try:
-    load_dotenv()
+    # Try to load .env with explicit encoding handling
+    env_path = Path(__file__).resolve().parents[2] / '.env'
+    if env_path.exists():
+        try:
+            # Try loading with utf-8-sig to handle BOM if present
+            load_dotenv(dotenv_path=str(env_path), encoding='utf-8-sig')
+        except (UnicodeDecodeError, Exception):
+            # Fallback: try standard load_dotenv
+            try:
+                load_dotenv(dotenv_path=str(env_path))
+            except Exception:
+                pass
+    else:
+        load_dotenv()
 except Exception:
     # If python-dotenv is not installed, rely on environment variables already set.
     pass
@@ -70,7 +89,8 @@ def _warm_up_ollama_background(endpoint: str = "http://localhost:11434"):
         import requests
         # small lightweight generate to trigger model load; ignore failures
         try:
-            requests.post(endpoint.rstrip('/') + '/api/generate', json={"model": "mistral", "prompt": "Ping"}, timeout=5)
+            ollama_model = os.getenv('OLLAMA_MODEL', 'mistral')
+            requests.post(endpoint.rstrip('/') + '/api/generate', json={"model": ollama_model, "prompt": "Ping"}, timeout=5)
         except Exception:
             pass
     except Exception:
@@ -88,8 +108,24 @@ except Exception:
 
 # Read the HTML file
 def read_html_file(file_path: str) -> str:
-    with open(file_path, "r", encoding="utf-8") as f:
-        return f.read()
+    """Read HTML file with safe encoding handling."""
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except UnicodeDecodeError:
+        # Try with utf-8-sig to handle BOM, then fallback to other encodings
+        try:
+            with open(file_path, "r", encoding="utf-8-sig") as f:
+                return f.read()
+        except UnicodeDecodeError:
+            # Fallback: read as bytes and decode with error handling
+            with open(file_path, "rb") as f:
+                content = f.read()
+                try:
+                    return content.decode("utf-8", errors="replace")
+                except Exception:
+                    # Last resort: try latin-1 (never fails)
+                    return content.decode("latin-1", errors="replace")
 
 
 def is_ollama_available(endpoint: str = "http://localhost:11434", timeout: float = 2.0) -> bool:
@@ -99,7 +135,17 @@ def is_ollama_available(endpoint: str = "http://localhost:11434", timeout: float
     """
     try:
         import urllib.request, json
-        # First try a simple GET to the root URL; Ollama often answers with an informational page
+        # First try the /api/tags endpoint which is lightweight and always available
+        try:
+            tags_url = endpoint.rstrip('/') + '/api/tags'
+            req = urllib.request.Request(tags_url)
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                if 200 <= getattr(resp, 'status', 200) < 400:
+                    return True
+        except Exception:
+            pass
+        
+        # Fallback: try a simple GET to the root URL
         try:
             with urllib.request.urlopen(endpoint, timeout=timeout) as resp:
                 body = resp.read(1024)
@@ -114,15 +160,18 @@ def is_ollama_available(endpoint: str = "http://localhost:11434", timeout: float
                     # even if body doesn't include text, a 200 response is likely OK
                     return True
         except Exception:
-            # fallback: try the generate endpoint with a tiny POST
-            try:
-                gen_url = endpoint.rstrip('/') + '/api/generate'
-                data = json.dumps({"model": "mistral", "prompt": "ping"}).encode("utf-8")
-                req = urllib.request.Request(gen_url, data=data, headers={"Content-Type": "application/json"})
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
-                    return 200 <= getattr(resp, 'status', 200) < 400
-            except Exception:
-                return False
+            pass
+        
+        # Last fallback: try the generate endpoint with a tiny POST
+        try:
+            gen_url = endpoint.rstrip('/') + '/api/generate'
+            ollama_model = os.getenv('OLLAMA_MODEL', 'mistral')
+            data = json.dumps({"model": ollama_model, "prompt": "ping"}).encode("utf-8")
+            req = urllib.request.Request(gen_url, data=data, headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return 200 <= getattr(resp, 'status', 200) < 400
+        except Exception:
+            return False
     except Exception:
         return False
 
@@ -282,6 +331,45 @@ st.set_page_config(
 # HF model selector for fallback
 if "hf_fallback_model" not in st.session_state:
     st.session_state.hf_fallback_model = os.getenv('HF_FALLBACK_MODEL', 'gpt2')
+
+# Ollama model selector - get available models from Ollama
+st.sidebar.markdown("### Ollama Model Settings")
+if "ollama_model" not in st.session_state:
+    st.session_state.ollama_model = os.getenv('OLLAMA_MODEL', 'mistral')
+
+def get_ollama_models():
+    """Get list of available Ollama models"""
+    try:
+        import urllib.request, json
+        tags_url = "http://localhost:11434/api/tags"
+        req = urllib.request.Request(tags_url)
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            if resp.getcode() == 200:
+                data = json.loads(resp.read().decode('utf-8'))
+                models = [model.get('name', '') for model in data.get('models', [])]
+                return [m for m in models if m]  # Filter out empty strings
+    except Exception:
+        pass
+    return ['mistral']  # Default fallback
+
+ollama_models = get_ollama_models()
+if ollama_models:
+    selected_ollama_model = st.sidebar.selectbox(
+        "Ollama Model (for document processing)",
+        options=ollama_models,
+        index=0 if 'mistral' in ollama_models else 0,
+        help="Select which Ollama model to use for processing documents. This model will be used for summaries, mind maps, and Q&A generation."
+    )
+    st.session_state.ollama_model = selected_ollama_model
+    os.environ['OLLAMA_MODEL'] = str(st.session_state.ollama_model)
+    st.sidebar.caption(f"Using Ollama model: {st.session_state.ollama_model}")
+else:
+    st.sidebar.warning("Could not fetch Ollama models. Using default: mistral")
+    st.session_state.ollama_model = 'mistral'
+    os.environ['OLLAMA_MODEL'] = 'mistral'
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("### HuggingFace Fallback Settings")
 # provide a quick dropdown of common small models and a text input for custom
 COMMON_HF_MODELS = ["gpt2", "distilgpt2", "facebook/opt-125m", "tiiuae/falcon-7b-instruct" ]
 sel = st.sidebar.selectbox("HF model (quick select)", options=["(custom)"] + COMMON_HF_MODELS, index=0)
@@ -322,7 +410,12 @@ with col_b:
             kv = f"HF_FALLBACK_MODEL={st.session_state.hf_fallback_model}\n"
             # write or update simple key
             if env_path.exists():
-                text = env_path.read_text(encoding='utf-8')
+                # Read with UTF-8, handling BOM if present
+                try:
+                    text = env_path.read_text(encoding='utf-8-sig')  # utf-8-sig handles BOM
+                except UnicodeDecodeError:
+                    # Fallback: try reading as bytes and decode with error handling
+                    text = env_path.read_bytes().decode('utf-8', errors='replace')
                 if 'HF_FALLBACK_MODEL=' in text:
                     import re
                     text = re.sub(r"HF_FALLBACK_MODEL=.*\n?", kv, text)
@@ -972,8 +1065,19 @@ if file_input is not None:
             # if a temp file exists (background thread wrote the result), load it into session_state
             if out_path and os.path.exists(out_path):
                 try:
-                    with open(out_path, 'r', encoding='utf-8') as fh:
-                        refined = json.load(fh)
+                    # Try reading with utf-8, fallback to utf-8-sig and other encodings
+                    try:
+                        with open(out_path, 'r', encoding='utf-8') as fh:
+                            refined = json.load(fh)
+                    except UnicodeDecodeError:
+                        try:
+                            with open(out_path, 'r', encoding='utf-8-sig') as fh:
+                                refined = json.load(fh)
+                        except UnicodeDecodeError:
+                            # Fallback: read as bytes and decode
+                            with open(out_path, 'rb') as fh:
+                                content = fh.read().decode('utf-8', errors='replace')
+                                refined = json.loads(content)
                     # move into session state for display and remove file
                     st.session_state.llm_refined_result = refined
                     try:
